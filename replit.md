@@ -6,11 +6,13 @@ This is a full-stack AI-powered healthcare platform that enables patients to upl
 
 ## Recent Changes (September 30, 2025)
 
+- **Frontend Implementation Complete**: React + Vite application with full authentication and dashboards
 - **Backend Implementation Complete**: Fully functional Flask REST API with OCR and AI analysis
 - **Security Enhancements**: Firebase Authentication enforced on all endpoints with token revocation checking
 - **Storage Optimization**: Blob paths stored in Firestore with on-demand signed URL generation (15-minute expiration)
 - **Production-Ready Configuration**: Debug mode controlled by environment variable, configurable CORS
 - **API Endpoints Deployed**: POST /upload, GET /reports/<user_id>, GET /report/<report_id> running on port 8000
+- **Frontend Running**: Port 5000 with login, signup, patient dashboard, doctor dashboard, and role-based routing
 
 ## User Preferences
 
@@ -19,15 +21,28 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Frontend Architecture
-- **Framework**: React/Next.js for building patient and doctor dashboards
-- **Styling**: TailwindCSS/SCSS for responsive UI components
-- **Visualization**: Recharts or Chart.js for health trend graphs and progress tracking
+- **Framework**: React 18 with Vite for fast development and building
+- **Routing**: React Router v6 with protected route components and role-based access control
+- **Styling**: TailwindCSS v4 (with @tailwindcss/postcss) for responsive UI components
+- **Visualization**: Recharts for health trend graphs and timeline charts
+- **State Management**: React Context API (AuthContext) for global authentication state
+- **API Integration**: Axios with interceptors for automatic token attachment
 - **Key Pages**: 
-  - Landing page with platform overview
-  - Patient dashboard for uploads, analysis viewing, and timeline
-  - Doctor dashboard for patient report review and feedback
-  - History page for past reports and AI summaries
-  - Profile page for user settings and notifications
+  - Login page with remember-me functionality (Firebase persistence)
+  - Signup page with role selection (patient/doctor)
+  - Patient dashboard with file upload, AI analysis display, report timeline, and visualizations
+  - Doctor dashboard with patient list, report viewing, and health trend analysis
+- **Components**:
+  - ProtectedRoute: Wrapper for authenticated routes with role validation
+  - UploadReport: Drag-and-drop file upload with progress and validation
+  - HealthChart: Recharts line chart for timeline visualization
+  - ReportList: Searchable list of medical reports with click-to-view
+  - PatientCard: Doctor view of patient information with report counts
+- **Backend Integration**: 
+  - Backend URL: https://7f378abd-e71b-46bf-b706-2b3ac1cc5cce-00-zh72b1unbhua.sisko.replit.dev
+  - CORS-enabled requests with Firebase ID tokens in Authorization headers
+  - Real-time file upload with FormData
+  - Report retrieval with pagination support
 
 ### Backend Architecture
 - **Framework**: Flask (Python) REST API server
@@ -41,8 +56,15 @@ Preferred communication style: Simple, everyday language.
 
 ### Authentication & Authorization
 - **Firebase Authentication**: Handles secure user login for both patients and doctors
+  - Client-side: Firebase JS SDK v10 with React integration
+  - Server-side: Firebase Admin SDK with token verification and revocation checking
+  - Remember Me: Browser localStorage vs sessionStorage persistence
 - **Role-Based Access**: Separate dashboards and permissions for patient vs doctor roles
+  - Protected routes redirect based on user role
+  - Firestore stores user role in /users/{uid}/role field
 - **Token-Based Security**: Authorization headers for API requests
+  - Automatic token refresh via Firebase
+  - Axios interceptors attach tokens to all backend requests
 
 ### Data Storage
 - **Firestore Database**: NoSQL document database for:
@@ -95,10 +117,22 @@ Preferred communication style: Simple, everyday language.
 - **Werkzeug 3.0.1**: WSGI utilities
 
 ### Environment Configuration
-- **Required Environment Variables**:
+- **Backend Environment Variables**:
   - `GEMINI_API_KEY`: Google Gemini API authentication
   - `ALLOWED_ORIGINS`: CORS configuration for frontend URLs
-  - Firebase credentials (configured through Firebase Admin SDK)
+  - `FIREBASE_PRIVATE_KEY`: Firebase Admin SDK private key
+  - `FIREBASE_PROJECT_ID`: Firebase project identifier
+  - `FIREBASE_CLIENT_EMAIL`: Firebase service account email
+  - `DEBUG`: Controls Flask debug mode (default: False)
+
+- **Frontend Environment Variables**:
+  - `VITE_FIREBASE_API_KEY`: Firebase web API key
+  - `VITE_FIREBASE_AUTH_DOMAIN`: Firebase auth domain
+  - `VITE_FIREBASE_PROJECT_ID`: Firebase project ID
+  - `VITE_FIREBASE_STORAGE_BUCKET`: Firebase storage bucket
+  - `VITE_FIREBASE_MESSAGING_SENDER_ID`: Firebase messaging sender ID
+  - `VITE_FIREBASE_APP_ID`: Firebase app ID
+  - `VITE_BACKEND_URL`: Backend API base URL (defaults to Replit domain)
 
 ### System Requirements
 - Tesseract OCR must be installed on the system (not just the Python wrapper)
