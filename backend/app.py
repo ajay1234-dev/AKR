@@ -24,7 +24,15 @@ load_dotenv()
 app = Flask(__name__)
 
 # Enable CORS for frontend integration
-CORS(app, resources={r"/*": {"origins": "*"}})
+# For production, restrict to specific frontend origin
+allowed_origins = os.environ.get('ALLOWED_ORIGINS', '*').split(',')
+CORS(app, resources={
+    r"/*": {
+        "origins": allowed_origins,
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -49,6 +57,7 @@ try:
         "project_id": os.environ.get("FIREBASE_PROJECT_ID"),
         "private_key": private_key,
         "client_email": os.environ.get("FIREBASE_CLIENT_EMAIL"),
+        "token_uri": "https://oauth2.googleapis.com/token",
     })
     
     firebase_admin.initialize_app(cred, {
@@ -77,11 +86,14 @@ def verify_firebase_token(id_token: str) -> dict:
         Decoded token dictionary with user information
         
     Raises:
-        Exception: If token is invalid
+        Exception: If token is invalid or revoked
     """
     try:
-        decoded_token = auth.verify_id_token(id_token)
+        # Verify token and check if it has been revoked
+        decoded_token = auth.verify_id_token(id_token, check_revoked=True)
         return decoded_token
+    except auth.RevokedIdTokenError:
+        raise Exception("Token has been revoked")
     except Exception as e:
         raise Exception(f"Invalid authentication token: {str(e)}")
 
@@ -112,7 +124,7 @@ def allowed_file(filename: str) -> bool:
 
 def upload_to_firebase_storage(local_file_path: str, filename: str, user_id: str) -> str:
     """
-    Upload file to Firebase Storage and return signed URL (private access)
+    Upload file to Firebase Storage and return blob path
     
     Args:
         local_file_path: Path to local file
@@ -120,27 +132,52 @@ def upload_to_firebase_storage(local_file_path: str, filename: str, user_id: str
         user_id: User ID for file path organization
         
     Returns:
-        Signed URL with limited access (24 hours)
+        Blob path in storage (not a URL - signed URLs generated on retrieval)
     """
     try:
         if not bucket:
             return ""
         
         # Store files in user-specific folders for better organization and security
-        blob = bucket.blob(f"medical_reports/{user_id}/{filename}")
+        blob_path = f"medical_reports/{user_id}/{filename}"
+        blob = bucket.blob(blob_path)
         blob.upload_from_filename(local_file_path)
         
-        # Generate signed URL (valid for 24 hours) instead of making public
+        # Return blob path instead of signed URL
+        # Signed URLs will be generated on-demand when fetching reports
+        return blob_path
+    except Exception as e:
+        print(f"Firebase Storage upload error: {str(e)}")
+        return ""
+
+
+def generate_signed_url(blob_path: str) -> str:
+    """
+    Generate a short-lived signed URL for a storage blob
+    
+    Args:
+        blob_path: Path to blob in Firebase Storage
+        
+    Returns:
+        Signed URL valid for 15 minutes
+    """
+    try:
+        if not bucket or not blob_path:
+            return ""
+        
         from datetime import timedelta
+        blob = bucket.blob(blob_path)
+        
+        # Generate signed URL valid for 15 minutes
         signed_url = blob.generate_signed_url(
             version="v4",
-            expiration=timedelta(hours=24),
+            expiration=timedelta(minutes=15),
             method="GET"
         )
         
         return signed_url
     except Exception as e:
-        print(f"Firebase Storage upload error: {str(e)}")
+        print(f"Signed URL generation error: {str(e)}")
         return ""
 
 
@@ -235,10 +272,10 @@ def upload_file():
             return jsonify({"error": f"Processing failed: {str(e)}"}), 500
         
         # Upload to Firebase Storage if available
-        file_url = ""
+        blob_path = ""
         if bucket:
             try:
-                file_url = upload_to_firebase_storage(file_path, unique_filename, user_id)
+                blob_path = upload_to_firebase_storage(file_path, unique_filename, user_id)
             except Exception as e:
                 print(f"Storage upload warning: {str(e)}")
         
@@ -248,7 +285,7 @@ def upload_file():
             try:
                 report_data = {
                     "filename": original_filename,
-                    "file_url": file_url,
+                    "blob_path": blob_path,  # Store blob path, not signed URL
                     "extracted_text": extracted_text,
                     "ai_analysis": ai_analysis,
                     "uploaded_at": datetime.utcnow().isoformat(),
@@ -269,7 +306,6 @@ def upload_file():
             "extracted_text": extracted_text,
             "ai_analysis": ai_analysis,
             "report_id": report_id,
-            "file_url": file_url,
             "message": "File processed successfully"
         }), 200
         
@@ -317,6 +353,11 @@ def get_user_reports(user_id):
         for doc in query.stream():
             report_data = doc.to_dict()
             report_data['report_id'] = doc.id
+            
+            # Generate fresh signed URL for file access (if blob_path exists)
+            if 'blob_path' in report_data and report_data['blob_path']:
+                report_data['file_url'] = generate_signed_url(report_data['blob_path'])
+            
             reports.append(report_data)
         
         return jsonify({
@@ -373,6 +414,10 @@ def get_report_detail(report_id):
         report_data = doc.to_dict()
         report_data['report_id'] = doc.id
         
+        # Generate fresh signed URL for file access (if blob_path exists)
+        if 'blob_path' in report_data and report_data['blob_path']:
+            report_data['file_url'] = generate_signed_url(report_data['blob_path'])
+        
         return jsonify({
             "success": True,
             "report": report_data
@@ -402,5 +447,7 @@ def internal_error(e):
 
 if __name__ == '__main__':
     # Run Flask app
-    # Bind to 0.0.0.0:5000 for Replit environment
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Bind to 0.0.0.0:8000 for backend API (port 5000 reserved for frontend)
+    port = int(os.environ.get('PORT', 8000))
+    debug_mode = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
