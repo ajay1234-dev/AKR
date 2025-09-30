@@ -16,11 +16,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const { role } = await signIn(email, password);
-      
-      if (rememberMe) {
-        localStorage.setItem('rememberMe', 'true');
-      }
+      const { role } = await signIn(email, password, rememberMe);
       
       if (role === 'doctor') {
         navigate('/doctor-dashboard');
@@ -73,6 +69,7 @@ const Login = () => {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Enter your password"
+              autoComplete="current-password"
               required
             />
           </div>
