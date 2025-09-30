@@ -5,4 +5,4 @@ integrations = ["python_gemini:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["poppler", "tesseract"]
+packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "poppler", "poppler_utils", "tcl", "tesseract", "tk", "zlib"]
