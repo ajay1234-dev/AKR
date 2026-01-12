@@ -1,0 +1,462 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, SafeAreaView } from 'react-native';
+import Voice from '@react-native-voice/voice';
+import { billAPI } from '../utils/api';
+
+export default function CreateBillScreen({ navigation }) {
+  const [customerName, setCustomerName] = useState('');
+  const [vehicleNumber, setVehicleNumber] = useState('');
+  const [works, setWorks] = useState([{ description: '', amount: '' }]);
+  const [spareParts, setSpareParts] = useState([{ description: '', amount: '' }]);
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [currentField, setCurrentField] = useState('');
+
+  useEffect(() => {
+    // Initialize voice recognition
+    Voice.onSpeechStart = onSpeechStart;
+    Voice.onSpeechRecognized = onSpeechRecognized;
+    Voice.onSpeechEnd = onSpeechEnd;
+    Voice.onSpeechError = onSpeechError;
+    Voice.onSpeechResults = onSpeechResults;
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners);
+    };
+  }, []);
+
+  const onSpeechStart = (e) => {
+    console.log('Speech started');
+  };
+
+  const onSpeechRecognized = (e) => {
+    console.log('Speech recognized');
+  };
+
+  const onSpeechEnd = (e) => {
+    setIsListening(false);
+  };
+
+  const onSpeechError = (e) => {
+    console.error('Speech error:', e);
+    setIsListening(false);
+    Alert.alert('Error', 'Failed to recognize speech. Please try again.');
+  };
+
+  const onSpeechResults = (e) => {
+    const text = e.value[0];
+    if (currentField === 'customerName') {
+      setCustomerName(text);
+    } else if (currentField === 'vehicleNumber') {
+      setVehicleNumber(text);
+    } else if (currentField.startsWith('work_')) {
+      const index = parseInt(currentField.split('_')[1]);
+      const newWorks = [...works];
+      newWorks[index].description = text;
+      setWorks(newWorks);
+    } else if (currentField.startsWith('sparePart_')) {
+      const index = parseInt(currentField.split('_')[1]);
+      const newSpareParts = [...spareParts];
+      newSpareParts[index].description = text;
+      setSpareParts(newSpareParts);
+    }
+  };
+
+  const startVoiceRecognition = (field) => {
+    if (isListening) {
+      stopVoiceRecognition();
+      return;
+    }
+
+    setCurrentField(field);
+    setIsListening(true);
+    Voice.start('en-US').catch(error => {
+      console.error('Voice recognition error:', error);
+      setIsListening(false);
+      Alert.alert('Error', 'Failed to start voice recognition. Please check permissions.');
+    });
+  };
+
+  const stopVoiceRecognition = async () => {
+    try {
+      await Voice.stop();
+      setIsListening(false);
+    } catch (error) {
+      console.error('Error stopping voice recognition:', error);
+      setIsListening(false);
+    }
+  };
+
+  const addWork = () => {
+    setWorks([...works, { description: '', amount: '' }]);
+  };
+
+  const addSparePart = () => {
+    setSpareParts([...spareParts, { description: '', amount: '' }]);
+  };
+
+  const removeWork = (index) => {
+    if (works.length > 1) {
+      const newWorks = [...works];
+      newWorks.splice(index, 1);
+      setWorks(newWorks);
+    }
+  };
+
+  const removeSparePart = (index) => {
+    if (spareParts.length > 1) {
+      const newSpareParts = [...spareParts];
+      newSpareParts.splice(index, 1);
+      setSpareParts(newSpareParts);
+    }
+  };
+
+  const updateWork = (index, field, value) => {
+    const newWorks = [...works];
+    newWorks[index][field] = value;
+    setWorks(newWorks);
+  };
+
+  const updateSparePart = (index, field, value) => {
+    const newSpareParts = [...spareParts];
+    newSpareParts[index][field] = value;
+    setSpareParts(newSpareParts);
+  };
+
+  const calculateTotals = () => {
+    const workTotal = works.reduce((sum, work) => sum + (parseFloat(work.amount) || 0), 0);
+    const sparePartTotal = spareParts.reduce((sum, part) => sum + (parseFloat(part.amount) || 0), 0);
+    const total = workTotal + sparePartTotal;
+    const advance = parseFloat(advanceAmount) || 0;
+    const balance = total - advance;
+    
+    return { total, balance };
+  };
+
+  const handleCreateBill = async () => {
+    if (!customerName.trim() || !vehicleNumber.trim()) {
+      Alert.alert('Error', 'Please provide customer name and vehicle number');
+      return;
+    }
+
+    // Validate that at least one work or spare part is provided
+    const hasValidWork = works.some(work => work.description.trim() && work.amount.trim());
+    const hasValidSparePart = spareParts.some(part => part.description.trim() && part.amount.trim());
+    
+    if (!hasValidWork && !hasValidSparePart) {
+      Alert.alert('Error', 'Please add at least one work or spare part with amount');
+      return;
+    }
+
+    // Validate amounts
+    const invalidWorkAmount = works.some(work => work.description.trim() && !work.amount.trim());
+    const invalidSparePartAmount = spareParts.some(part => part.description.trim() && !part.amount.trim());
+    
+    if (invalidWorkAmount || invalidSparePartAmount) {
+      Alert.alert('Error', 'Please provide amounts for all works and spare parts');
+      return;
+    }
+
+    try {
+      const response = await billAPI.createBill({
+        customerName,
+        vehicleNumber,
+        works: works.filter(work => work.description.trim() && work.amount.trim()),
+        spareParts: spareParts.filter(part => part.description.trim() && part.amount.trim()),
+        advanceAmount: parseFloat(advanceAmount) || 0
+      });
+
+      Alert.alert('Success', 'Bill created successfully!', [
+        { text: 'OK', onPress: () => navigation.goBack() }
+      ]);
+    } catch (error) {
+      console.error('Error creating bill:', error);
+      Alert.alert('Error', 'Failed to create bill. Please try again.');
+    }
+  };
+
+  const { total, balance } = calculateTotals();
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.sectionTitle}>Customer Details</Text>
+        
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Customer Name</Text>
+          <View style={styles.voiceInputContainer}>
+            <TextInput
+              style={styles.textInput}
+              value={customerName}
+              onChangeText={setCustomerName}
+              placeholder="Enter customer name"
+              placeholderTextColor="#999"
+            />
+            <TouchableOpacity
+              style={[styles.voiceButton, isListening && currentField === 'customerName' && styles.listeningButton]}
+              onPress={() => startVoiceRecognition('customerName')}
+            >
+              <Text style={styles.voiceButtonText}>
+                {isListening && currentField === 'customerName' ? 'LISTENING...' : 'VOICE'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Vehicle Number</Text>
+          <View style={styles.voiceInputContainer}>
+            <TextInput
+              style={styles.textInput}
+              value={vehicleNumber}
+              onChangeText={setVehicleNumber}
+              placeholder="Enter vehicle number"
+              placeholderTextColor="#999"
+            />
+            <TouchableOpacity
+              style={[styles.voiceButton, isListening && currentField === 'vehicleNumber' && styles.listeningButton]}
+              onPress={() => startVoiceRecognition('vehicleNumber')}
+            >
+              <Text style={styles.voiceButtonText}>
+                {isListening && currentField === 'vehicleNumber' ? 'LISTENING...' : 'VOICE'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Works</Text>
+        {works.map((work, index) => (
+          <View key={index} style={styles.itemContainer}>
+            <View style={styles.voiceInputContainer}>
+              <TextInput
+                style={[styles.textInput, styles.descriptionInput]}
+                value={work.description}
+                onChangeText={(text) => updateWork(index, 'description', text)}
+                placeholder="Describe the work done"
+                placeholderTextColor="#999"
+              />
+              <TouchableOpacity
+                style={[styles.voiceButton, isListening && currentField === `work_${index}` && styles.listeningButton]}
+                onPress={() => startVoiceRecognition(`work_${index}`)}
+              >
+                <Text style={styles.voiceButtonText}>
+                  {isListening && currentField === `work_${index}` ? 'LISTENING...' : 'VOICE'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.amountContainer}>
+              <Text style={styles.label}>Amount (₹)</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={work.amount}
+                onChangeText={(text) => updateWork(index, 'amount', text.replace(/[^0-9.]/g, ''))}
+                placeholder="0.00"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+              />
+            </View>
+            {works.length > 1 && (
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() => removeWork(index)}
+              >
+                <Text style={styles.removeButtonText}>REMOVE</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ))}
+        <TouchableOpacity style={styles.addButton} onPress={addWork}>
+          <Text style={styles.addButtonText}>+ ADD WORK</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.sectionTitle}>Spare Parts</Text>
+        {spareParts.map((part, index) => (
+          <View key={index} style={styles.itemContainer}>
+            <View style={styles.voiceInputContainer}>
+              <TextInput
+                style={[styles.textInput, styles.descriptionInput]}
+                value={part.description}
+                onChangeText={(text) => updateSparePart(index, 'description', text)}
+                placeholder="Describe the spare part"
+                placeholderTextColor="#999"
+              />
+              <TouchableOpacity
+                style={[styles.voiceButton, isListening && currentField === `sparePart_${index}` && styles.listeningButton]}
+                onPress={() => startVoiceRecognition(`sparePart_${index}`)}
+              >
+                <Text style={styles.voiceButtonText}>
+                  {isListening && currentField === `sparePart_${index}` ? 'LISTENING...' : 'VOICE'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.amountContainer}>
+              <Text style={styles.label}>Amount (₹)</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={part.amount}
+                onChangeText={(text) => updateSparePart(index, 'amount', text.replace(/[^0-9.]/g, ''))}
+                placeholder="0.00"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+              />
+            </View>
+            {spareParts.length > 1 && (
+              <TouchableOpacity
+                style={styles.removeButton}
+                onPress={() => removeSparePart(index)}
+              >
+                <Text style={styles.removeButtonText}>REMOVE</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ))}
+        <TouchableOpacity style={styles.addButton} onPress={addSparePart}>
+          <Text style={styles.addButtonText}>+ ADD SPARE PART</Text>
+        </TouchableOpacity>
+
+        <View style={styles.totalsContainer}>
+          <Text style={styles.totalText}>Total Amount: ₹{total.toFixed(2)}</Text>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Advance Amount (₹)</Text>
+            <TextInput
+              style={styles.textInput}
+              value={advanceAmount}
+              onChangeText={(text) => setAdvanceAmount(text.replace(/[^0-9.]/g, ''))}
+              placeholder="0.00"
+              placeholderTextColor="#999"
+              keyboardType="numeric"
+            />
+          </View>
+          <Text style={styles.totalText}>Balance Amount: ₹{balance.toFixed(2)}</Text>
+        </View>
+
+        <TouchableOpacity style={styles.createButton} onPress={handleCreateBill}>
+          <Text style={styles.createButtonText}>CREATE BILL</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  content: {
+    padding: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    marginVertical: 15,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  voiceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  textInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 15,
+    fontSize: 16,
+    backgroundColor: 'white',
+  },
+  descriptionInput: {
+    marginRight: 10,
+  },
+  voiceButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 15,
+    paddingVertical: 15,
+    borderRadius: 8,
+    marginLeft: 10,
+  },
+  listeningButton: {
+    backgroundColor: '#FF5722',
+  },
+  voiceButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  itemContainer: {
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  amountContainer: {
+    marginTop: 10,
+  },
+  amountInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 15,
+    fontSize: 16,
+    backgroundColor: 'white',
+  },
+  removeButton: {
+    backgroundColor: '#f44336',
+    padding: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  removeButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  addButton: {
+    backgroundColor: '#FF9800',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  addButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  totalsContainer: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  totalText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+  },
+  createButton: {
+    backgroundColor: '#2196F3',
+    padding: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  createButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+});
