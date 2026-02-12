@@ -1,6 +1,14 @@
-import { API_URL } from "@/utils/apiConfig";
+// Import Firebase service instead of using HTTP API
+import {
+  firebaseService,
+  Customer,
+  Bill,
+  BillItem,
+  WorkDone,
+} from "./firebaseService";
 
 // Types
+// Re-export types from firebaseService to maintain compatibility
 export interface Customer {
   id: string;
   name: string;
@@ -16,6 +24,15 @@ export interface BillItem {
   quantity: number;
   rate: number;
   amount: number;
+  unit: string;
+  createdAt: string;
+}
+
+export interface WorkDone {
+  id: string;
+  billId: string;
+  workName: string;
+  price: number;
   createdAt: string;
 }
 
@@ -24,6 +41,7 @@ export interface Bill {
   customerId: string;
   customerName: string;
   vehicleNumber: string;
+  vehicleName?: string; // Added vehicle name field
   workDescription: string;
   totalAmount: number;
   advanceAmount: number;
@@ -31,26 +49,21 @@ export interface Bill {
   createdAt: string;
   updatedAt: string;
   items: BillItem[];
+  workDone: WorkDone[];
 }
 
+// Export the types to be used in other modules
+export type { Customer, BillItem, WorkDone, Bill };
+
 // API Service
+// Using Firebase instead of HTTP API
 class ApiService {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = API_URL;
-  }
-
   // Customer APIs
   async getCustomers(): Promise<Customer[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/customers`);
-      if (!response.ok)
-        throw new Error(`Failed to fetch customers: ${response.status}`);
-      const data = await response.json();
-      return Array.isArray(data) ? data : [];
+      return await firebaseService.getCustomers();
     } catch (error) {
-      console.warn("API call failed (continuing offline):", error);
+      console.warn("Firebase call failed (continuing offline):", error);
       return [];
     }
   }
@@ -59,27 +72,9 @@ class ApiService {
     customerData: Omit<Customer, "id" | "createdAt" | "updatedAt">
   ): Promise<Customer | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/customers`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: customerData.name,
-          phone: customerData.phone || null,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Failed to create customer: ${response.status}`
-        );
-      }
-
-      return await response.json();
+      return await firebaseService.createCustomer(customerData);
     } catch (error) {
-      console.warn("API call failed (continuing offline):", error);
+      console.warn("Firebase call failed (continuing offline):", error);
       return null;
     }
   }
@@ -87,27 +82,18 @@ class ApiService {
   // Bill APIs
   async getBills(): Promise<Bill[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/bills`);
-      if (!response.ok)
-        throw new Error(`Failed to fetch bills: ${response.status}`);
-      const data = await response.json();
-      return Array.isArray(data) ? data : [];
+      return await firebaseService.getBills();
     } catch (error) {
-      console.warn("API call failed (continuing offline):", error);
+      console.warn("Firebase call failed (continuing offline):", error);
       return [];
     }
   }
 
   async getBill(id: string): Promise<Bill | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/bills/${id}`);
-      if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error(`Failed to fetch bill: ${response.status}`);
-      }
-      return await response.json();
+      return await firebaseService.getBill(id);
     } catch (error) {
-      console.warn("API call failed (continuing offline):", error);
+      console.warn("Firebase call failed (continuing offline):", error);
       return null;
     }
   }
@@ -115,52 +101,61 @@ class ApiService {
   async createBill(
     billData: Omit<Bill, "id" | "createdAt" | "updatedAt"> & {
       items: Omit<BillItem, "id" | "billId" | "createdAt">[];
+      workDone: Omit<WorkDone, "id" | "billId" | "createdAt">[];
     }
   ): Promise<Bill | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/bills`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          customerId: billData.customerId,
-          customerName: billData.customerName,
-          vehicleNumber: billData.vehicleNumber,
-          workDescription: billData.workDescription,
-          totalAmount: billData.totalAmount,
-          advanceAmount: billData.advanceAmount,
-          balanceAmount: billData.balanceAmount,
+      // Transform the data to match the Bill interface
+      const transformedBillData: Omit<Bill, "id" | "createdAt" | "updatedAt"> =
+        {
+          ...billData,
           items: billData.items.map((item) => ({
             itemName: item.itemName,
             quantity: item.quantity,
             rate: item.rate,
             amount: item.amount,
+            unit: item.unit,
           })),
-        }),
-      });
+          workDone: billData.workDone.map((work) => ({
+            workName: work.workName,
+            price: work.price,
+          })),
+        };
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.error || `Failed to create bill: ${response.status}`
-        );
-      }
-
-      return await response.json();
+      return await firebaseService.createBill(transformedBillData);
     } catch (error) {
-      console.warn("API call failed (continuing offline):", error);
+      console.warn("Firebase call failed (continuing offline):", error);
       return null;
     }
   }
 
-  // Health check
+  async updateBill(
+    id: string,
+    billData: Partial<Omit<Bill, "id" | "createdAt" | "updatedAt">>
+  ): Promise<void> {
+    try {
+      await firebaseService.updateBill(id, billData);
+    } catch (error) {
+      console.warn("Firebase call failed (continuing offline):", error);
+      throw error;
+    }
+  }
+
+  async deleteBill(id: string): Promise<void> {
+    try {
+      await firebaseService.deleteBill(id);
+    } catch (error) {
+      console.warn("Firebase call failed (continuing offline):", error);
+    }
+  }
+
+  // Health check - check if Firebase is accessible
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/health`);
-      return response.ok;
+      // Use the Firebase service health check
+      return await firebaseService.healthCheck();
     } catch (error) {
-      console.warn("Health check failed (assuming offline):", error);
+      console.warn("Firebase health check failed:", error);
       return false;
     }
   }

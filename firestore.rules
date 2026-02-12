@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read/write access to all documents for authenticated users
+    match /customers/{document} {
+      allow read, write: if true;  // For development - tighten this for production
+    }
+    
+    match /bills/{document} {
+      allow read, write: if true;  // For development - tighten this for production
+    }
+    
+    match /billItems/{document} {
+      allow read, write: if true;  // For development - tighten this for production
+    }
+    
+    match /workDone/{document} {
+      allow read, write: if true;  // For development - tighten this for production
+    }
+    
+    match /health_check/{document} {
+      allow read, write: if true;  // For health checks
+    }
+  }
+}

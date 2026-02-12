@@ -9,51 +9,48 @@ import {
   Divider,
 } from "react-native-paper";
 import { useRouter } from "expo-router";
-import * as Speech from "expo-speech";
+
 import { apiService, Bill } from "@/services/api";
-import { offlineStorage, OfflineBill } from "@/services/offlineStorage";
-import { syncService } from "@/services/syncService";
+import { pdfService } from "@/services/pdfService";
 
 export default function BillsListScreen() {
   const router = useRouter();
-  const [bills, setBills] = useState<(Bill | OfflineBill)[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadBills();
-    speak("Bills list screen loaded");
   }, []);
-
-  const speak = (text: string) => {
-    Speech.speak(text, {
-      language: "en-US",
-      pitch: 1.0,
-      rate: 0.8,
-    });
-  };
 
   const loadBills = async () => {
     setLoading(true);
     try {
-      // Load online bills
+      // Load bills directly from Firebase
       const onlineBills = await apiService.getBills();
 
-      // Load offline bills
-      const offlineBills = await offlineStorage.getOfflineBills();
+      // Sort by date (newest first)
+      const sortedBills = onlineBills.sort((a, b) => {
+        const aDate = a.createdAt ? new Date(a.createdAt) : new Date(0);
+        const bDate = b.createdAt ? new Date(b.createdAt) : new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      });
 
-      // Combine and sort by date (newest first)
-      const allBills = [...onlineBills, ...offlineBills].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      setBills(sortedBills);
+    } catch (error: any) {
+      console.error("Error loading bills from Firebase:", error);
+      // Set to empty array since we don't have offline storage anymore
+      setBills([]);
 
-      setBills(allBills);
-    } catch (error) {
-      console.error("Error loading bills:", error);
-      // Load offline bills as fallback
-      const offlineBills = await offlineStorage.getOfflineBills();
-      setBills(offlineBills);
+      let errorMessage = "Failed to load bills. Please try again.";
+
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.code) {
+        errorMessage = `Error: ${error.code}`;
+      }
+
+      Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -75,6 +72,81 @@ export default function BillsListScreen() {
     });
   };
 
+  const editBill = (bill: Bill) => {
+    router.push({
+      pathname: "/create-bill",
+      params: {
+        bill: JSON.stringify(bill),
+        isEditing: true,
+      },
+    });
+  };
+
+  const shareBill = async (bill: Bill) => {
+    try {
+      Alert.alert(
+        "Sharing Bill",
+        "Generating PDF and preparing for sharing...",
+        [{ text: "OK" }]
+      );
+
+      const success = await pdfService.sharePDF(bill);
+
+      if (success) {
+        Alert.alert(
+          "Success!",
+          "Bill shared successfully. The share sheet is now open with WhatsApp and other apps."
+        );
+      } else {
+        Alert.alert(
+          "Sharing Unavailable",
+          "Sharing is not available on this device. The PDF has been generated."
+        );
+      }
+    } catch (error: any) {
+      console.error("Error sharing bill:", error);
+      Alert.alert("Error", "Could not share the bill. Please try again.");
+    }
+  };
+
+  const deleteBill = async (billId: string, billIndex: number) => {
+    Alert.alert(
+      "Confirm Delete",
+      "Are you sure you want to delete this bill? This action cannot be undone.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiService.deleteBill(billId);
+              // Remove the bill from the local state
+              const updatedBills = [...bills];
+              updatedBills.splice(billIndex, 1);
+              setBills(updatedBills);
+            } catch (error: any) {
+              console.error("Error deleting bill:", error);
+
+              let errorMessage = "Failed to delete bill. Please try again.";
+
+              if (error.message) {
+                errorMessage = error.message;
+              } else if (error.code) {
+                errorMessage = `Error: ${error.code}`;
+              }
+
+              Alert.alert("Error", errorMessage);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleDateString("en-IN", {
@@ -84,26 +156,37 @@ export default function BillsListScreen() {
     });
   };
 
-  const renderBillItem = ({ item }: { item: Bill | OfflineBill }) => {
-    const isOffline = "syncStatus" in item;
-    const isPending = isOffline && item.syncStatus === "pending";
-
+  const renderBillItem = ({ item, index }: { item: Bill; index: number }) => {
     return (
-      <Card
-        style={[styles.billCard, isPending && styles.pendingCard]}
-        onPress={() => viewBillDetails(item)}
-      >
+      <Card style={styles.billCard}>
         <Card.Content>
           <View style={styles.billHeader}>
             <Title style={styles.billTitle}>{item.customerName}</Title>
-            {isPending && <Text style={styles.pendingBadge}>OFFLINE</Text>}
+            <Button
+              mode="text"
+              onPress={() => deleteBill(item.id, index)}
+              textColor="#e74c3c"
+              compact
+            >
+              Delete
+            </Button>
           </View>
 
           <Text style={styles.vehicleText}>🚗 {item.vehicleNumber}</Text>
 
-          <Text style={styles.descriptionText} numberOfLines={2}>
-            {item.workDescription}
-          </Text>
+          {item.workDescription ? (
+            <Text style={styles.descriptionText} numberOfLines={2}>
+              {item.workDescription}
+            </Text>
+          ) : null}
+
+          {/* Show work done summary if available */}
+          {"workDone" in item && item.workDone && item.workDone.length > 0 ? (
+            <Text style={styles.workDoneSummary}>
+              🛠️ {item.workDone.length} work item
+              {item.workDone.length !== 1 ? "s" : ""} completed
+            </Text>
+          ) : null}
 
           <Divider style={styles.divider} />
 
@@ -132,14 +215,32 @@ export default function BillsListScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.dateText}>{formatDate(item.createdAt)}</Text>
-            <Button
-              mode="text"
-              onPress={() => viewBillDetails(item)}
-              textColor="#3498db"
-              compact
-            >
-              View Details
-            </Button>
+            <View style={styles.buttonRow}>
+              <Button
+                mode="text"
+                onPress={() => editBill(item)}
+                textColor="#f39c12"
+                compact
+              >
+                Edit
+              </Button>
+              <Button
+                mode="text"
+                onPress={() => shareBill(item)}
+                textColor="#25D366"
+                compact
+              >
+                Share
+              </Button>
+              <Button
+                mode="text"
+                onPress={() => viewBillDetails(item)}
+                textColor="#3498db"
+                compact
+              >
+                View
+              </Button>
+            </View>
           </View>
         </Card.Content>
       </Card>
@@ -179,7 +280,7 @@ export default function BillsListScreen() {
       <FlatList
         data={bills}
         renderItem={renderBillItem}
-        keyExtractor={(item) => ("id" in item ? item.id : item.localId)}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         refreshing={refreshing}
         onRefresh={onRefresh}
@@ -259,8 +360,14 @@ const styles = StyleSheet.create({
   descriptionText: {
     fontSize: 14,
     color: "#7f8c8d",
-    marginBottom: 12,
+    marginBottom: 8,
     lineHeight: 20,
+  },
+  workDoneSummary: {
+    fontSize: 14,
+    color: "#3498db",
+    fontWeight: "600",
+    marginBottom: 12,
   },
   divider: {
     marginVertical: 12,
@@ -291,6 +398,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  buttonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
   dateText: {
     fontSize: 12,

@@ -1,25 +1,26 @@
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
+const admin = require("firebase-admin");
 const router = express.Router();
 
-const prisma = new PrismaClient();
+// Get Firestore instance
+const db = admin.firestore();
 
 // GET /api/customers - Get all customers
 router.get("/", async (req, res) => {
   try {
-    const customers = await prisma.customer.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        bills: {
-          select: {
-            id: true,
-            vehicleNumber: true,
-            totalAmount: true,
-            createdAt: true,
-          },
-        },
-      },
+    const customersSnapshot = await db
+      .collection("customers")
+      .orderBy("createdAt", "desc")
+      .get();
+
+    const customers = [];
+    customersSnapshot.forEach((doc) => {
+      customers.push({
+        id: doc.id,
+        ...doc.data(),
+      });
     });
+
     res.json(customers);
   } catch (error) {
     console.error("Error fetching customers:", error);
@@ -31,23 +32,16 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const customer = await prisma.customer.findUnique({
-      where: { id },
-      include: {
-        bills: {
-          select: {
-            id: true,
-            vehicleNumber: true,
-            totalAmount: true,
-            createdAt: true,
-          },
-        },
-      },
-    });
+    const customerDoc = await db.collection("customers").doc(id).get();
 
-    if (!customer) {
+    if (!customerDoc.exists) {
       return res.status(404).json({ error: "Customer not found" });
     }
+
+    const customer = {
+      id: customerDoc.id,
+      ...customerDoc.data(),
+    };
 
     res.json(customer);
   } catch (error) {
@@ -65,12 +59,18 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Name is required" });
     }
 
-    const customer = await prisma.customer.create({
-      data: {
-        name,
-        phone: phone || null,
-      },
-    });
+    const newCustomer = {
+      name,
+      phone: phone || null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const docRef = await db.collection("customers").add(newCustomer);
+    const customer = {
+      id: docRef.id,
+      ...newCustomer,
+    };
 
     res.status(201).json(customer);
   } catch (error) {
@@ -89,13 +89,20 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "Name is required" });
     }
 
-    const customer = await prisma.customer.update({
-      where: { id },
-      data: {
-        name,
-        phone: phone || null,
-      },
-    });
+    const updatedCustomer = {
+      name,
+      phone: phone || null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await db.collection("customers").doc(id).update(updatedCustomer);
+
+    // Return updated document
+    const customerDoc = await db.collection("customers").doc(id).get();
+    const customer = {
+      id: customerDoc.id,
+      ...customerDoc.data(),
+    };
 
     res.json(customer);
   } catch (error) {
@@ -109,9 +116,7 @@ router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    await prisma.customer.delete({
-      where: { id },
-    });
+    await db.collection("customers").doc(id).delete();
 
     res.json({ message: "Customer deleted successfully" });
   } catch (error) {

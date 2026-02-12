@@ -1,5 +1,9 @@
 {
   "expo": {
+    "plugins": ["expo-font"],
+    "android": {
+      "permissions": ["WRITE_EXTERNAL_STORAGE", "READ_EXTERNAL_STORAGE"]
+    },
     "name": "AKR WORKSHOP",
     "slug": "akr-workshop",
     "version": "1.0.0",
@@ -8,8 +12,13 @@
     "userInterfaceStyle": "light",
     "scheme": "akrworkshop",
     "jsEngine": "hermes",
-    "platforms": ["android", "ios"],
+    "platforms": ["android", "ios", "web"],
     "assetBundlePatterns": ["**/*"],
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#3498db"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.akr.workshop"

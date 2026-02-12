@@ -7,7 +7,8 @@ This is a full-stack mobile application with proper separation of concerns:
 ### Mobile App (Frontend)
 
 - **Framework**: Expo SDK 54 (React Native)
-- **Data Storage**: SQLite (offline-first)
+- **Platforms**: Android, iOS, and Web
+- **Data Storage**: SQLite (offline-first on mobile), localStorage (on web)
 - **Communication**: REST API calls to backend
 - **Features**: Text-to-Speech, offline capability, sync service
 

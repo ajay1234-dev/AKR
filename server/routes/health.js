@@ -1,30 +1,29 @@
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
+const admin = require("firebase-admin");
 const router = express.Router();
 
-const prisma = new PrismaClient();
+// Get Firestore instance
+const db = admin.firestore();
 
 // GET /api/health - Health check endpoint
 router.get("/", async (req, res) => {
   try {
-    // Test database connection
-    await prisma.$connect();
+    // Test Firebase connection by attempting to fetch a document
+    await db.collection("health_check").limit(1).get();
 
     res.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
-      database: "connected",
+      database: "firebase_connected",
       uptime: process.uptime(),
     });
   } catch (error) {
     console.error("Health check failed:", error);
     res.status(503).json({
       status: "unhealthy",
-      error: "Database connection failed",
+      error: "Firebase connection failed",
       timestamp: new Date().toISOString(),
     });
-  } finally {
-    await prisma.$disconnect();
   }
 });
 
