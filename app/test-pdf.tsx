@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, Button, Alert } from "react-native";
 import { pdfService } from "@/services/pdfService";
 
-const TestPDFScreen = () => {
+function TestPDFScreen() {
   const testBill = {
     id: "test-bill-123",
     customerId: "cust_123",
@@ -100,6 +100,6 @@ Check console for details.`
       />
     </View>
   );
-};
+}
 
 export default TestPDFScreen;

@@ -11,9 +11,10 @@ import {
 import { useRouter } from "expo-router";
 
 import { apiService, Bill } from "@/services/api";
+import { OfflineBill } from "@/services/offlineStorage";
 import { pdfService } from "@/services/pdfService";
 
-export default function BillsListScreen() {
+function BillsListScreen() {
   const router = useRouter();
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,28 +85,24 @@ export default function BillsListScreen() {
 
   const shareBill = async (bill: Bill) => {
     try {
-      Alert.alert(
-        "Sharing Bill",
-        "Generating PDF and preparing for sharing...",
-        [{ text: "OK" }]
-      );
-
       const success = await pdfService.sharePDF(bill);
 
       if (success) {
         Alert.alert(
           "Success!",
-          "Bill shared successfully. The share sheet is now open with WhatsApp and other apps."
+          Platform.OS === "web" 
+            ? "PDF downloaded successfully!" 
+            : "Share sheet opened!"
         );
       } else {
         Alert.alert(
           "Sharing Unavailable",
-          "Sharing is not available on this device. The PDF has been generated."
+          "Sharing is not available on this device."
         );
       }
     } catch (error: any) {
       console.error("Error sharing bill:", error);
-      Alert.alert("Error", "Could not share the bill. Please try again.");
+      Alert.alert("Error", error.message || "Could not share the bill");
     }
   };
 
@@ -432,3 +429,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#27ae60",
   },
 });
+
+export default BillsListScreen;

@@ -17,7 +17,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 
 import { Bill } from "@/services/api";
 
-export default function BillDetailScreen() {
+function BillDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [bill, setBill] = useState<Bill | null>(null);
@@ -81,103 +81,30 @@ export default function BillDetailScreen() {
   };
 
   const printBill = () => {
-    alert("Print feature will be available in the next update.");
-  };
-
-  const generateWhatsAppMessage = () => {
-    if (!bill) return "";
-
-    let message = `*🚗 MECHANIC BILL RECEIPT*
-
-`;
-    message += `*Customer:* ${bill.customerName}
-`;
-    message += `*Vehicle:* ${bill.vehicleNumber}
-`;
-    if (bill.vehicleName && bill.vehicleName.trim()) {
-      message += `*Model:* ${bill.vehicleName}
-`;
-    }
-    message += `*Date:* ${new Date(bill.createdAt).toLocaleDateString("en-IN")}
-`;
-
-    if (bill.workDescription) {
-      message += `\n*Work Description:*
-${bill.workDescription}\n`;
-    }
-
-    // Work Done section
-    if ("workDone" in bill && bill.workDone && bill.workDone.length > 0) {
-      message += `\n*Work Done:*
-`;
-      bill.workDone.forEach((work: any, index: number) => {
-        message += `${index + 1}. ${work.workName} - ₹${work.price.toFixed(
-          2
-        )}\n`;
-      });
-    }
-
-    // Items section
-    if (bill.items && bill.items.length > 0) {
-      message += `\n*Spare Parts/Items:*
-`;
-      bill.items.forEach((item, index) => {
-        const unitDisplay = item.unit ? ` ${item.unit}` : "";
-        message += `${index + 1}. ${item.itemName} - Qty: ${
-          item.quantity
-        }${unitDisplay}, Rate: ₹${item.rate.toFixed(
-          2
-        )}, Amount: ₹${item.amount.toFixed(2)}\n`;
-      });
-    }
-
-    message += `\n*TOTAL AMOUNT:* ₹${bill.totalAmount.toFixed(2)}
-`;
-    if (bill.advanceAmount > 0) {
-      message += `*ADVANCE PAID:* ₹${bill.advanceAmount.toFixed(2)}
-`;
-    }
-    message += `*BALANCE:* ₹${bill.balanceAmount.toFixed(2)}
-\nThank you for your business!`;
-
-    return encodeURIComponent(message);
+    Alert.alert("Print Feature", "Print feature will be available in the next update.");
   };
 
   const shareBill = async () => {
     if (!bill) return;
 
     try {
-      Alert.alert(
-        "Sharing Bill",
-        "Generating PDF and preparing for WhatsApp...",
-        [{ text: "OK" }]
-      );
-
-      // Use the new PDF service with expo-sharing integration
+      // Share PDF via native share sheet (includes WhatsApp, Email, etc.)
       const success = await pdfService.sharePDF(bill);
 
       if (success) {
         Alert.alert(
           "Success!",
-          "Bill shared successfully. The share sheet is now open with WhatsApp and other apps."
+          "Bill shared successfully!"
         );
       } else {
         Alert.alert(
           "Sharing Unavailable",
-          "Sharing is not available on this device. The PDF has been generated."
+          "Sharing is not available on this device."
         );
       }
     } catch (error: any) {
-      console.error("Error sharing bill to WhatsApp:", error);
-      let errorMessage = "Could not share bill to WhatsApp";
-
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.code) {
-        errorMessage = `Error: ${error.code}`;
-      }
-
-      Alert.alert("Share Error", errorMessage);
+      console.error("Error sharing bill:", error);
+      Alert.alert("Share Error", error.message || "Could not share bill");
     }
   };
 
@@ -185,37 +112,23 @@ ${bill.workDescription}\n`;
     if (!bill) return;
 
     try {
-      Alert.alert(
-        "Sharing Bill",
-        "Generating PDF and opening share options...",
-        [{ text: "OK" }]
-      );
-
-      // Use the new PDF service with expo-sharing integration
+      // Same as shareBill - opens native share sheet where user can select contact
       const success = await pdfService.sharePDF(bill);
 
       if (success) {
         Alert.alert(
           "Success!",
-          "Bill shared successfully. The share sheet is now open with WhatsApp and other apps."
+          "Share sheet opened. Select a contact to share the bill."
         );
       } else {
         Alert.alert(
           "Sharing Unavailable",
-          "Sharing is not available on this device. The PDF has been generated."
+          "Sharing is not available on this device."
         );
       }
     } catch (error: any) {
-      console.error("Error generating or sharing bill as PDF:", error);
-      let errorMessage = "Could not share bill as PDF";
-
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.code) {
-        errorMessage = `Error: ${error.code}`;
-      }
-
-      Alert.alert("PDF Error", errorMessage);
+      console.error("Error sharing bill:", error);
+      Alert.alert("Share Error", error.message || "Could not share bill");
     }
   };
 
@@ -223,35 +136,25 @@ ${bill.workDescription}\n`;
     if (!bill) return;
 
     try {
-      Alert.alert("Sharing Bill as PDF", "Generating PDF file for sharing...", [
-        { text: "OK" },
-      ]);
-
-      // Use the new PDF service with expo-sharing integration
+      // Generate and share PDF
       const success = await pdfService.sharePDF(bill);
 
       if (success) {
         Alert.alert(
           "Success!",
-          "Bill shared successfully. The share sheet is now open with WhatsApp and other apps."
+          Platform.OS === "web" 
+            ? "PDF downloaded successfully!" 
+            : "Share sheet opened with PDF!"
         );
       } else {
         Alert.alert(
           "Sharing Unavailable",
-          "Sharing is not available on this device. The PDF has been generated."
+          "Sharing is not available on this device."
         );
       }
     } catch (error: any) {
-      console.error("Error generating or sharing bill as PDF:", error);
-      let errorMessage = "Could not share bill as PDF";
-
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.code) {
-        errorMessage = `Error: ${error.code}`;
-      }
-
-      Alert.alert("PDF Error", errorMessage);
+      console.error("Error generating PDF:", error);
+      Alert.alert("PDF Error", error.message || "Could not generate PDF");
     }
   };
 
@@ -387,7 +290,7 @@ ${bill.workDescription}\n`;
         {/* Action Buttons */}
         <View style={styles.buttonContainer}>
           <Text style={styles.instructionText}>
-            💡 Press any button below to share this bill
+            💡 Choose how to share this bill
           </Text>
 
           <Button
@@ -411,31 +314,23 @@ ${bill.workDescription}\n`;
           </Button>
 
           <Button
+            mode="contained"
+            onPress={shareBillAsPDF}
+            style={[styles.actionButton, styles.shareButton]}
+            labelStyle={styles.buttonText}
+            icon="file-pdf-box"
+          >
+            DOWNLOAD / SHARE PDF
+          </Button>
+
+          <Button
             mode="outlined"
             onPress={shareBill}
-            style={[styles.actionButton, styles.shareButton]}
-            labelStyle={styles.shareButtonText}
-            icon="whatsapp"
-          >
-            SHARE VIA WHATSAPP (DIRECT)
-          </Button>
-          <Button
-            mode="outlined"
-            onPress={shareBillWithContactSelection}
             style={[styles.actionButton, styles.shareWebButton]}
             labelStyle={styles.shareButtonText}
-            icon="account-multiple"
+            icon="share-variant"
           >
-            SHARE WITH CONTACT SELECT
-          </Button>
-          <Button
-            mode="outlined"
-            onPress={shareBillAsPDF}
-            style={[styles.actionButton, styles.shareImageButton]}
-            labelStyle={styles.shareButtonText}
-            icon="file-document"
-          >
-            SHARE AS PDF
+            SHARE VIA APPS
           </Button>
         </View>
 
@@ -643,14 +538,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#3498db",
   },
   printButton: {
-    backgroundColor: "#27ae60",
-  },
-  shareButton: {
-    borderColor: "#3498db",
+    borderColor: "#95a5a6",
     borderWidth: 2,
   },
+  shareButton: {
+    backgroundColor: "#27ae60",
+  },
   shareWebButton: {
-    borderColor: "#2ecc71",
+    borderColor: "#3498db",
     borderWidth: 2,
   },
   shareImageButton: {
@@ -658,7 +553,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   shareButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     color: "#3498db",
     fontWeight: "bold",
   },
@@ -679,3 +574,5 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 });
+
+export default BillDetailScreen;

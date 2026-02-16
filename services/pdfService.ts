@@ -2,11 +2,14 @@ import {
   documentDirectory,
   writeAsStringAsync,
   EncodingType,
+  readAsStringAsync,
 } from "expo-file-system";
-import { Platform } from "react-native";
+import { Platform, Linking } from "react-native";
+import * as Sharing from "expo-sharing";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Bill } from "./api";
+import { Asset } from "expo-asset";
 
 interface PDFResult {
   uri: string;
@@ -14,8 +17,70 @@ interface PDFResult {
 }
 
 class PDFService {
+  private logoBase64: string | null = null;
+
+  // Load logo and convert to base64
+  async loadLogo(): Promise<string | null> {
+    try {
+      // If already loaded, return cached version
+      if (this.logoBase64) {
+        return this.logoBase64;
+      }
+
+      // For web platform, use fetch to load the image
+      if (Platform.OS === "web") {
+        try {
+          const response = await fetch(require("../assets/logo.png"));
+          const blob = await response.blob();
+          
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64data = reader.result as string;
+              this.logoBase64 = base64data;
+              resolve(base64data);
+            };
+            reader.onerror = () => {
+              console.warn("Could not read logo file on web");
+              resolve(null);
+            };
+            reader.readAsDataURL(blob);
+          });
+        } catch (webError) {
+          console.warn("Could not load logo on web:", webError);
+          return null;
+        }
+      }
+
+      // For mobile platforms, use expo-asset
+      try {
+        const asset = Asset.fromModule(require("../assets/logo.png"));
+        await asset.downloadAsync();
+        
+        if (asset.localUri) {
+          const base64 = await readAsStringAsync(asset.localUri, {
+            encoding: EncodingType.Base64,
+          });
+          this.logoBase64 = `data:image/png;base64,${base64}`;
+          return this.logoBase64;
+        }
+      } catch (mobileError) {
+        console.warn("Could not load logo on mobile:", mobileError);
+        return null;
+      }
+
+      return null;
+    } catch (error) {
+      console.warn("Error loading logo:", error);
+      return null;
+    }
+  }
+
   // Generate HTML content for the bill
-  generateBillHTML(bill: Bill): string {
+  async generateBillHTML(bill: Bill): Promise<string> {
+    // Load logo as base64
+    const logoBase64 = await this.loadLogo();
+    
     const workDoneItems =
       "workDone" in bill && bill.workDone && bill.workDone.length > 0
         ? bill.workDone
@@ -59,6 +124,15 @@ class PDFService {
             font-family: Arial, sans-serif;
             margin: 20px;
             color: #333;
+          }
+          .logo {
+            text-align: center;
+            margin-bottom: 20px;
+          }
+          .logo img {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
           }
           .header {
             background-color: #3498db;
@@ -135,6 +209,7 @@ class PDFService {
         </style>
       </head>
       <body>
+        ${logoBase64 ? `<div class="logo"><img src="${logoBase64}" alt="Logo" /></div>` : ''}
         <div class="header">
           <h1>🚗 AKR WORKSHOP BILL</h1>
           <h2>${bill.customerName}</h2>
@@ -308,59 +383,48 @@ class PDFService {
         format: "a4",
       });
 
-      // AutoTable is imported as a function and used as autoTable(doc, options)
-      // This is the correct approach for Expo/Hermes environments
-      console.log("jsPDF instance created, AutoTable function available");
+      console.log("jsPDF instance created");
 
       // Set font and colors
       doc.setFont("helvetica");
 
-      // Business Information with logo support - prioritize environment logo, fallback to local asset
-      let logoUrl = process.env.EXPO_PUBLIC_LOGO_URL || null;
+      // Load logo
+      const logoBase64 = await this.loadLogo();
 
-      // If no environment logo is set, try to use the local logo asset
-      if (!logoUrl) {
-        // For local assets, we need to handle them differently
-        // We'll create a simple placeholder since jsPDF can't directly load local files
-        // The actual local logo will be embedded via Base64
-        try {
-          // For now, we'll skip local asset embedding in PDF and rely on environment variable
-          console.log("Using environment logo or skipping local asset for PDF");
-        } catch (error) {
-          console.warn("Could not prepare local logo asset:", error);
-        }
-      }
-
+      // Business Information
       const businessInfo = {
         name: process.env.EXPO_PUBLIC_BUSINESS_NAME || "AKR WORKSHOP",
         address:
           process.env.EXPO_PUBLIC_BUSINESS_ADDRESS ||
           "123 Main Street, City, State",
         phone: process.env.EXPO_PUBLIC_BUSINESS_PHONE || "+91 9876543210",
-        logoUrl: logoUrl,
       };
-
-      console.log("Business Info:", businessInfo);
-      console.log("Logo URL:", businessInfo.logoUrl);
-      console.log(
-        "Logo URL length:",
-        businessInfo.logoUrl ? businessInfo.logoUrl.length : 0
-      );
 
       // Clean Business Header with proper alignment
       let yPos = 15;
 
-      // Add Logo if available
-      if (businessInfo.logoUrl) {
-        await this.loadImageForPDF(doc, businessInfo.logoUrl, 20, yPos, 30, 20);
-        // Adjust yPos to account for logo height
-        yPos += 25;
+      // Add Logo at the top center if available
+      if (logoBase64) {
+        try {
+          const logoWidth = 30;
+          const logoHeight = 30;
+          const logoX = (210 - logoWidth) / 2; // Center horizontally (A4 width is 210mm)
+          
+          doc.addImage(logoBase64, "PNG", logoX, yPos, logoWidth, logoHeight);
+          yPos += logoHeight + 5; // Add space after logo
+          console.log("Logo added to PDF successfully");
+        } catch (logoError) {
+          console.warn("Could not add logo to PDF:", logoError);
+          // Continue without logo
+        }
+      } else {
+        console.log("No logo available, continuing without logo");
       }
 
       // Business Name (Center aligned)
       doc.setFont("helvetica", "bold");
       doc.setFontSize(20);
-      doc.setTextColor(0, 0, 0); // Black color for clean printing
+      doc.setTextColor(0, 0, 0);
       doc.text(businessInfo.name, 105, yPos, { align: "center" });
       yPos += 7;
 
@@ -382,7 +446,7 @@ class PDFService {
       doc.line(15, yPos, 195, yPos);
       yPos += 10;
 
-      // Customer Information with proper alignment
+      // Customer Information
       doc.setFont("helvetica", "normal");
       doc.setFontSize(12);
       doc.text(`Customer: ${bill.customerName}`, 15, yPos);
@@ -405,10 +469,6 @@ class PDFService {
       }
       yPos += 5;
 
-      // Reset to standard font settings
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(0, 0, 0);
-
       // Work Description section
       if (bill.workDescription) {
         doc.setFontSize(14);
@@ -430,14 +490,12 @@ class PDFService {
         doc.text("WORK DONE", 15, yPos);
         yPos += 10;
 
-        // Create work done table with clean formatting
         const workDoneData = bill.workDone.map((work: any, index: number) => [
           (index + 1).toString(),
           work.workName,
-          work.price.toFixed(2), // Clean number without currency symbol in table
+          work.price.toFixed(2),
         ]);
 
-        // Use AutoTable with clean styling
         autoTable(doc, {
           startY: yPos,
           head: [["#", "Work Description", "Amount (₹)"]],
@@ -458,9 +516,9 @@ class PDFService {
           },
           margin: { left: 15, right: 15 },
           columnStyles: {
-            0: { cellWidth: 15 }, // # column
-            1: { cellWidth: 120 }, // Description column
-            2: { cellWidth: 30, halign: "right" }, // Amount column
+            0: { cellWidth: 15 },
+            1: { cellWidth: 120 },
+            2: { cellWidth: 30, halign: "right" },
           },
         });
 
@@ -474,16 +532,14 @@ class PDFService {
         doc.text("SPARE PARTS & ITEMS", 15, yPos);
         yPos += 10;
 
-        // Create items table with clean formatting
         const itemsData = bill.items.map((item, index) => [
           (index + 1).toString(),
           item.itemName,
           `${item.quantity} ${item.unit || ""}`,
-          item.rate.toFixed(2), // Clean numbers
-          item.amount.toFixed(2), // Clean numbers
+          item.rate.toFixed(2),
+          item.amount.toFixed(2),
         ]);
 
-        // Use AutoTable with proper column alignment
         autoTable(doc, {
           startY: yPos,
           head: [["#", "Item Name", "Quantity", "Rate (₹)", "Amount (₹)"]],
@@ -504,47 +560,43 @@ class PDFService {
           },
           margin: { left: 15, right: 15 },
           columnStyles: {
-            0: { cellWidth: 10 }, // # column
-            1: { cellWidth: 80 }, // Item name
-            2: { cellWidth: 25, halign: "center" }, // Quantity
-            3: { cellWidth: 25, halign: "right" }, // Rate
-            4: { cellWidth: 25, halign: "right" }, // Amount
+            0: { cellWidth: 10 },
+            1: { cellWidth: 80 },
+            2: { cellWidth: 25, halign: "center" },
+            3: { cellWidth: 25, halign: "right" },
+            4: { cellWidth: 25, halign: "right" },
           },
         });
 
         yPos = (doc as any).lastAutoTable.finalY + 12;
       }
 
-      // Clean Amount Summary with proper alignment
+      // Amount Summary
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
       doc.setTextColor(0, 0, 0);
 
-      // Total Amount (Right aligned)
-      const totalText = `Total Amount: ${bill.totalAmount.toFixed(2)}`;
+      const totalText = `Total Amount: ₹${bill.totalAmount.toFixed(2)}`;
       const totalWidth = doc.getTextWidth(totalText);
       doc.text(totalText, 195 - totalWidth, yPos);
       yPos += 8;
 
       if (bill.advanceAmount > 0) {
-        const advanceText = `Advance Paid: ${bill.advanceAmount.toFixed(2)}`;
+        const advanceText = `Advance Paid: ₹${bill.advanceAmount.toFixed(2)}`;
         const advanceWidth = doc.getTextWidth(advanceText);
         doc.text(advanceText, 195 - advanceWidth, yPos);
         yPos += 8;
       }
 
-      // Balance Due with emphasis
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
-      const balanceText = `Balance Due: ${bill.balanceAmount.toFixed(2)}`;
+      const balanceText = `Balance Due: ₹${bill.balanceAmount.toFixed(2)}`;
       const balanceWidth = doc.getTextWidth(balanceText);
       doc.text(balanceText, 195 - balanceWidth, yPos);
-
-      // Add underline for emphasis
       doc.line(195 - balanceWidth, yPos + 2, 195, yPos + 2);
       yPos += 12;
 
-      // Clean Footer
+      // Footer
       yPos += 15;
       doc.setFontSize(10);
       doc.setFont("helvetica", "italic");
@@ -557,30 +609,30 @@ class PDFService {
         align: "center",
       });
 
-      // Generate PDF as ArrayBuffer for compatibility
-      const pdfArrayBuffer = doc.output("arraybuffer");
+      // Generate PDF as base64 string
+      const pdfBase64 = doc.output("datauristring");
+      const base64Data = pdfBase64.split(",")[1];
+      
+      const fileName = `bill_${bill.customerName.replace(
+        /[^a-zA-Z0-9]/g,
+        "_"
+      )}_${Date.now()}.pdf`;
 
-      // For web, save the PDF directly
-      if (typeof window !== "undefined" && window.location) {
+      // For web platform - trigger download
+      if (Platform.OS === "web") {
         try {
-          // Save the PDF directly in the browser
-          doc.save(
-            `bill_${bill.customerName.replace(
-              /[^a-zA-Z0-9]/g,
-              "_"
-            )}_${Date.now()}.pdf`
-          );
-          console.log("PDF saved successfully for web platform");
-          // Return a placeholder URL since the file is already saved
+          if (typeof document !== "undefined") {
+            const linkSource = pdfBase64;
+            const downloadLink = document.createElement("a");
+            downloadLink.href = linkSource;
+            downloadLink.download = fileName;
+            downloadLink.click();
+            console.log("PDF downloaded successfully for web");
+          }
+          
           return {
-            uri: `file://${documentDirectory}bill_${bill.customerName.replace(
-              /[^a-zA-Z0-9]/g,
-              "_"
-            )}_${Date.now()}.pdf`,
-            fileName: `bill_${bill.customerName.replace(
-              /[^a-zA-Z0-9]/g,
-              "_"
-            )}_${Date.now()}.pdf`,
+            uri: pdfBase64,
+            fileName: fileName,
           };
         } catch (webError) {
           console.error("Error saving PDF for web:", webError);
@@ -592,29 +644,17 @@ class PDFService {
         }
       }
 
+      // For mobile platforms - save to file system
       try {
-        const base64Data = EncodingType.Base64;
-        const uint8Array = new Uint8Array(pdfArrayBuffer);
-        let binary = "";
-        uint8Array.forEach((byte) => {
-          binary += String.fromCharCode(byte);
-        });
-        const base64String = btoa(binary);
-
-        const fileName = `bill_${bill.id || "unknown"}_${Date.now()}.pdf`;
         const fileUri = `${documentDirectory}${fileName}`;
-
-        await writeAsStringAsync(fileUri, base64String, {
+        await writeAsStringAsync(fileUri, base64Data, {
           encoding: EncodingType.Base64,
         });
 
-        console.log("PDF generated successfully for mobile platform:", fileUri);
+        console.log("PDF saved to:", fileUri);
         return {
           uri: fileUri,
-          fileName: `bill_${bill.customerName.replace(
-            /[^a-zA-Z0-9]/g,
-            "_"
-          )}_${Date.now()}.pdf`,
+          fileName: fileName,
         };
       } catch (mobileError) {
         console.error("Error saving PDF on mobile:", mobileError);
@@ -634,36 +674,146 @@ class PDFService {
     }
   }
 
-  // Method to share PDF using expo-sharing
+  // Share PDF via native share sheet (works on mobile)
   async sharePDF(bill: Bill): Promise<boolean> {
     try {
       const pdfResult = await this.generatePDF(bill);
 
-      // Only proceed with sharing if not on web
-      if (typeof window !== "undefined" && window.location) {
-        console.log(
-          "Web environment - skipping native share, PDF already downloaded"
-        );
+      // On web, PDF is already downloaded
+      if (Platform.OS === "web") {
+        console.log("Web: PDF downloaded automatically");
         return true;
       }
 
-      // On mobile, use expo-sharing
-      const { default: Sharing } = await import("expo-sharing");
-
-      if (await Sharing.isAvailableAsync()) {
+      // On mobile, check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      
+      if (isAvailable) {
         await Sharing.shareAsync(pdfResult.uri, {
           mimeType: "application/pdf",
           dialogTitle: `Share bill for ${bill.customerName}`,
         });
         return true;
       } else {
-        console.log("Sharing is not available on this device");
+        console.log("Sharing not available on this device");
+        // Try to open the file directly
+        if (pdfResult.uri) {
+          await Linking.openURL(pdfResult.uri);
+          return true;
+        }
         return false;
       }
     } catch (error) {
       console.error("Error sharing PDF:", error);
       throw error;
     }
+  }
+
+  // Share via WhatsApp with text message (no PDF)
+  async shareViaWhatsAppText(bill: Bill): Promise<boolean> {
+    try {
+      const message = this.generateWhatsAppMessage(bill);
+      const whatsappUrl = `whatsapp://send?text=${message}`;
+
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+        return true;
+      } else {
+        throw new Error("WhatsApp is not installed on this device");
+      }
+    } catch (error) {
+      console.error("Error sharing via WhatsApp:", error);
+      throw error;
+    }
+  }
+
+  // Share via WhatsApp with PDF attachment (mobile only)
+  async shareViaWhatsAppPDF(bill: Bill): Promise<boolean> {
+    try {
+      if (Platform.OS === "web") {
+        // On web, just download the PDF and show WhatsApp web link
+        await this.generatePDF(bill);
+        const message = this.generateWhatsAppMessage(bill);
+        const whatsappWebUrl = `https://web.whatsapp.com/send?text=${message}`;
+        
+        if (typeof window !== "undefined") {
+          window.open(whatsappWebUrl, "_blank");
+        }
+        return true;
+      }
+
+      // On mobile, generate PDF and share via WhatsApp
+      const pdfResult = await this.generatePDF(bill);
+
+      // Check if WhatsApp is installed
+      const whatsappUrl = "whatsapp://send";
+      const canOpenWhatsApp = await Linking.canOpenURL(whatsappUrl);
+
+      if (!canOpenWhatsApp) {
+        throw new Error("WhatsApp is not installed on this device");
+      }
+
+      // Share the PDF - user can select WhatsApp from share sheet
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(pdfResult.uri, {
+          mimeType: "application/pdf",
+          dialogTitle: `Share bill via WhatsApp`,
+        });
+        return true;
+      } else {
+        throw new Error("Sharing is not available on this device");
+      }
+    } catch (error) {
+      console.error("Error sharing via WhatsApp with PDF:", error);
+      throw error;
+    }
+  }
+
+  // Generate WhatsApp message text
+  private generateWhatsAppMessage(bill: Bill): string {
+    let message = `*🚗 AKR WORKSHOP BILL*\n\n`;
+    message += `*Customer:* ${bill.customerName}\n`;
+    message += `*Vehicle:* ${bill.vehicleNumber}\n`;
+    
+    if (bill.vehicleName && bill.vehicleName.trim()) {
+      message += `*Model:* ${bill.vehicleName}\n`;
+    }
+    
+    message += `*Date:* ${new Date(bill.createdAt).toLocaleDateString("en-IN")}\n`;
+
+    if (bill.workDescription) {
+      message += `\n*Work Description:*\n${bill.workDescription}\n`;
+    }
+
+    // Work Done section
+    if ("workDone" in bill && bill.workDone && bill.workDone.length > 0) {
+      message += `\n*Work Done:*\n`;
+      bill.workDone.forEach((work: any, index: number) => {
+        message += `${index + 1}. ${work.workName} - ₹${work.price.toFixed(2)}\n`;
+      });
+    }
+
+    // Items section
+    if (bill.items && bill.items.length > 0) {
+      message += `\n*Spare Parts/Items:*\n`;
+      bill.items.forEach((item, index) => {
+        const unitDisplay = item.unit ? ` ${item.unit}` : "";
+        message += `${index + 1}. ${item.itemName} - Qty: ${item.quantity}${unitDisplay}, Rate: ₹${item.rate.toFixed(2)}, Amount: ₹${item.amount.toFixed(2)}\n`;
+      });
+    }
+
+    message += `\n*TOTAL AMOUNT:* ₹${bill.totalAmount.toFixed(2)}\n`;
+    
+    if (bill.advanceAmount > 0) {
+      message += `*ADVANCE PAID:* ₹${bill.advanceAmount.toFixed(2)}\n`;
+    }
+    
+    message += `*BALANCE DUE:* ₹${bill.balanceAmount.toFixed(2)}\n`;
+    message += `\nThank you for your business!`;
+
+    return encodeURIComponent(message);
   }
 }
 

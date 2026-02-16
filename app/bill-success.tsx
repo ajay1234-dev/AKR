@@ -5,7 +5,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { Bill } from "@/services/api";
 import { pdfService } from "@/services/pdfService";
 
-export default function BillSuccessScreen() {
+function BillSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const [bill, setBill] = React.useState<Bill | null>(null);
@@ -31,28 +31,25 @@ export default function BillSuccessScreen() {
 
     try {
       setLoading(true);
-      Alert.alert(
-        "Sharing Bill",
-        "Generating PDF and preparing for sharing...",
-        [{ text: "OK" }]
-      );
-
+      
       const success = await pdfService.sharePDF(bill);
 
       if (success) {
         Alert.alert(
           "Success!",
-          "Bill shared successfully. The share sheet is now open with WhatsApp and other apps."
+          Platform.OS === "web" 
+            ? "PDF downloaded successfully!" 
+            : "Share sheet opened! Select WhatsApp or any other app."
         );
       } else {
         Alert.alert(
           "Sharing Unavailable",
-          "Sharing is not available on this device. The PDF has been generated."
+          "Sharing is not available on this device."
         );
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sharing bill:", error);
-      Alert.alert("Error", "Could not share the bill. Please try again.");
+      Alert.alert("Error", error.message || "Could not share the bill");
     } finally {
       setLoading(false);
     }
@@ -148,10 +145,11 @@ export default function BillSuccessScreen() {
           onPress={handleShareWhatsApp}
           style={[styles.actionButton, styles.whatsappButton]}
           labelStyle={styles.whatsappButtonText}
-          icon="whatsapp"
+          icon="share-variant"
           loading={loading}
+          disabled={loading}
         >
-          SHARE ON WHATSAPP
+          SHARE BILL
         </Button>
 
         <Button
@@ -160,6 +158,7 @@ export default function BillSuccessScreen() {
           style={[styles.actionButton, styles.viewButton]}
           labelStyle={styles.buttonText}
           icon="eye"
+          disabled={loading}
         >
           VIEW BILL
         </Button>
@@ -170,6 +169,7 @@ export default function BillSuccessScreen() {
           style={[styles.actionButton, styles.newBillButton]}
           labelStyle={styles.buttonText}
           icon="plus"
+          disabled={loading}
         >
           CREATE NEW BILL
         </Button>
@@ -324,3 +324,5 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 });
+
+export default BillSuccessScreen;

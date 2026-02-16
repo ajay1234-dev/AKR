@@ -49,6 +49,18 @@ export default function RootLayout() {
           title: "BILL DETAILS",
         }}
       />
+      <Stack.Screen
+        name="bill-success"
+        options={{
+          title: "BILL CREATED",
+        }}
+      />
+      <Stack.Screen
+        name="test-pdf"
+        options={{
+          title: "PDF TEST",
+        }}
+      />
     </Stack>
   );
 }
